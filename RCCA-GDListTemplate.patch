@@ -1,0 +1,842 @@
+diff --git a/index.html b/index.html
+--- a/index.html
++++ b/index.html
+@@ -1,8 +1,8 @@
+ <!DOCTYPE html>
+ <html lang="en">
+     <head>
+         <meta charset="UTF-8" />
+-        <meta name="viewport" content="width=1024" />
+-        <title>Your List Name</title>
++        <meta name="viewport" content="width=device-width, initial-scale=1" />
++        <title>RC Challenge Accepted (RCCA)</title>
+         <!-- Replace your server icon by uploading an image file named "list_icon.png"-->
+         <link rel="icon" href="/list_icon.png" />
+@@ -35,7 +35,7 @@
+     <body id="app">
+         <header :class="{ dark: store.dark }">
+             <div class="logo">
+-                <h2>Sample List</h2>
+-                <p>v1.0.0</p>
++                <h2>RC Challenge Accepted</h2>
++                <p>RCCA</p>
+             </div>
+             <nav class="nav">
+@@ -58,14 +58,19 @@
+                             alt=""
+                         />
+                     </button>
+-                    <!-- Replace the '#' with your discord server's invite-->
+-                    <a class="nav__icon" href="#">
+-                        <img src="/assets/discord.svg" alt="Discord Logo" />
++                    <a
++                        class="nav__icon"
++                        href="https://t.me/RCCHALLACPTD"
++                        target="_blank"
++                        rel="noopener noreferrer"
++                        title="RCCA Telegram"
++                    >
++                        <img src="/assets/telegram.svg" alt="Telegram" />
+                     </a>
+-                    <!-- List record submission form, add a link to replace the '#' when putting a link to your list submission form-->
+                     <a
+                         class="nav__cta type-label-lg"
+-                        href="#"
++                        href="https://t.me/RCCHALLACPTD/3259"
+                         target="_blank"
++                        rel="noopener noreferrer"
+                         >Submit Record</a
+                     >
+diff --git a/assets/telegram.svg b/assets/telegram.svg
+new file mode 100644
+--- /dev/null
++++ b/assets/telegram.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
++  <path fill="#ffffff" d="M21.76 3.24a1.7 1.7 0 0 0-1.72-.21L3.05 9.58a1.53 1.53 0 0 0 .08 2.89l4.21 1.42 1.63 5.11a1.28 1.28 0 0 0 2.12.55l2.36-2.23 4.31 3.16a1.52 1.52 0 0 0 2.39-.93L22.35 4.8a1.7 1.7 0 0 0-.59-1.56ZM9.8 15.91l-.72 2.15-.92-3.45 8.85-6.42-7.21 7.72Z"/>
++</svg>
+diff --git a/js/config.js b/js/config.js
+new file mode 100644
+--- /dev/null
++++ b/js/config.js
+@@ -0,0 +1,12 @@
++export const config = Object.freeze({
++    name: 'RC Challenge Accepted',
++    shortName: 'RCCA',
++    mainCutoff: 20,
++    extendedCutoff: 50,
++    telegram: 'https://t.me/RCCHALLACPTD',
++    submitRecords: 'https://t.me/RCCHALLACPTD/3259',
++    score: {
++        topScore: 200,
++        lastExtendedScore: 15,
++    },
++});
+diff --git a/js/score.js b/js/score.js
+--- a/js/score.js
++++ b/js/score.js
+@@ -1,3 +1,5 @@
++import { config } from './config.js';
++
+ /**
+  * Numbers of decimal digits to round to
+  */
+@@ -10,9 +12,9 @@
+  * @returns {Number}
+  */
+ export function score(rank, percent, minPercent) {
+-    if (rank > 150) {
++    if (rank > config.extendedCutoff) {
+         return 0;
+     }
+-    if (rank > 75 && percent < 100) {
++    if (rank > config.mainCutoff && percent < 100) {
+         return 0;
+     }
+@@ -22,5 +24,10 @@
+          ((percent - (minPercent - 1)) / (100 - (minPercent - 1)));
+     */
+-    // New formula
+-    let score = (-24.9975*Math.pow(rank-1, 0.4) + 200) *
++    // Same curve as the template, scaled for RCCA's Top 50.
++    // #1 = 200 points, #50 = 15 points.
++    const exponent = 0.4;
++    const coefficient =
++        (config.score.topScore - config.score.lastExtendedScore) /
++        Math.pow(config.extendedCutoff - 1, exponent);
++    let score = (-coefficient * Math.pow(rank - 1, exponent) + config.score.topScore) *
+         ((percent - (minPercent - 1)) / (100 - (minPercent - 1)));
+diff --git a/js/util.js b/js/util.js
+--- a/js/util.js
++++ b/js/util.js
+@@ -4,6 +4,35 @@
+     )?.[1] ?? '';
+ }
+ 
++export function getTelegramPostFromUrl(url) {
++    try {
++        const parsed = new URL(url);
++        if (!['t.me', 'www.t.me', 'telegram.me', 'www.telegram.me'].includes(parsed.hostname)) {
++            return null;
++        }
++        const parts = parsed.pathname.split('/').filter(Boolean);
++        if (parts.length < 2 || !/^\d+$/.test(parts[1])) {
++            return null;
++        }
++        return {
++            channel: parts[0],
++            post: parts[1],
++        };
++    } catch {
++        return null;
++    }
++}
++
++export function isTelegramUrl(url) {
++    return getTelegramPostFromUrl(url) !== null;
++}
++
++export function telegramEmbed(url) {
++    const post = getTelegramPostFromUrl(url);
++    if (!post) return '';
++    return `https://t.me/${post.channel}/${post.post}?embed=1&mode=tme`;
++}
++
+ export function embed(video) {
+     return `https://www.youtube.com/embed/${getYoutubeIdFromUrl(video)}`;
+ }
+diff --git a/js/pages/List.js b/js/pages/List.js
+--- a/js/pages/List.js
++++ b/js/pages/List.js
+@@ -1,7 +1,8 @@
+ import { store } from "../main.js";
+-import { embed } from "../util.js";
++import { embed, isTelegramUrl, telegramEmbed } from "../util.js";
+ import { score } from "../score.js";
+ import { fetchEditors, fetchList } from "../content.js";
++import { config } from "../config.js";
+ 
+ import Spinner from "../components/Spinner.js";
+ import LevelAuthors from "../components/List/LevelAuthors.js";
+@@ -8,27 +9,50 @@
+ const roleIconMap = {
+     owner: "crown",
+     admin: "user-gear",
+-    helper: "user-shield",
++    moderator: "user-shield",
+     dev: "code",
+-    trial: "user-lock",
+ };
++
++const roleLabelMap = {
++    owner: "List Owner",
++    admin: "List Admin",
++    moderator: "List Moderator",
++    dev: "Developer",
++};
++
+ export default {
+     components: { Spinner, LevelAuthors },
+     template: `
+         <main v-if="loading">
+             <Spinner></Spinner>
+         </main>
+         <main v-else class="page-list">
+             <div class="list-container">
++                <div class="list-tools">
++                    <input
++                        v-model.trim="query"
++                        class="list-search"
++                        type="search"
++                        placeholder="Search levels..."
++                        aria-label="Search levels"
++                    >
++                    <div class="list-filters" aria-label="List section">
++                        <button v-for="item in filters"
++                            :class="{ active: section === item.value }"
++                            @click="section = item.value">
++                            {{ item.label }}
++                        </button>
++                    </div>
++                </div>
+                 <table class="list" v-if="list">
+-                    <tr v-for="([level, err], i) in list">
++                    <tr v-for="item in filteredList" :key="item.index">
+                         <td class="rank">
+-                            <p v-if="i + 1 <= 150" class="type-label-lg">#{{ i + 1 }}</p>
++                            <p v-if="item.rank <= config.extendedCutoff" class="type-label-lg">#{{ item.rank }}</p>
+                             <p v-else class="type-label-lg">Legacy</p>
+                         </td>
+-                        <td class="level" :class="{ 'active': selected == i, 'error': !level }">
+-                            <button @click="selected = i">
+-                                <span class="type-label-lg">{{ level?.name || \`Error (\${err}.json)\` }}</span>
++                        <td class="level" :class="{ 'active': selected == item.index, 'error': !item.level }">
++                            <button @click="selected = item.index">
++                                <span class="type-label-lg">{{ item.level?.name || \`Error (\${item.err}.json)\` }}</span>
+                             </button>
+                         </td>
+                     </tr>
+@@ -38,7 +61,15 @@
+                 <div class="level" v-if="level">
+                     <h1>{{ level.name }}</h1>
+                     <LevelAuthors :author="level.author" :creators="level.creators" :verifier="level.verifier"></LevelAuthors>
+-                    <iframe class="video" id="videoframe" :src="video" frameborder="0"></iframe>
++                    <iframe
++                        v-if="isTelegram"
++                        class="video telegram-video"
++                        :src="video"
++                        frameborder="0"
++                        scrolling="no"
++                        allowfullscreen
++                    ></iframe>
++                    <iframe v-else class="video" id="videoframe" :src="video" frameborder="0" allowfullscreen></iframe>
+                     <ul class="stats">
+                         <li>
+                             <div class="type-title-sm">Points when completed</div>
+@@ -53,9 +85,9 @@
+                             <p>{{ level.password || 'Free to Copy' }}</p>
+                         </li>
+                     </ul>
+-                    <h2>Records</h2>
+-                    <p v-if="selected + 1 <= 75"><strong>{{ level.percentToQualify }}%</strong> or better to qualify</p>
+-                    <p v-else-if="selected +1 <= 150"><strong>100%</strong> or better to qualify</p>
+-                    <p v-else>This level does not accept new records.</p>
++                    <h2>Records · {{ level.records.length }}</h2>
++                    <p v-if="selected + 1 <= config.mainCutoff"><strong>{{ level.percentToQualify }}%</strong> or better to qualify</p>
++                    <p v-else-if="selected + 1 <= config.extendedCutoff"><strong>100%</strong> or better to qualify</p>
++                    <p v-else><strong>Legacy:</strong> this level does not accept new records.</p>
+                     <table class="records">
+                         <tr v-for="record in level.records" class="record">
+@@ -89,38 +121,45 @@
+                     <template v-if="editors">
+                         <h3>List Editors</h3>
+                         <ol class="editors">
+                             <li v-for="editor in editors">
+                                 <img :src="\`/assets/\${roleIconMap[editor.role]}\${store.dark ? '-dark' : ''}.svg\`" :alt="editor.role">
+-                                <a v-if="editor.link" class="type-label-lg link" target="_blank" :href="editor.link">{{ editor.name }}</a>
+-                                <p v-else>{{ editor.name }}</p>
++                                <div class="editor-name">
++                                    <p class="type-label-lg">{{ editor.name }}</p>
++                                    <small>{{ roleLabelMap[editor.role] || editor.role }}</small>
++                                </div>
+                             </li>
+                         </ol>
+                     </template>
+-                    <h3>Submission Requirements</h3>
+-                    <p>
+-                        Achieved the record without using hacks (however, FPS bypass is allowed, up to 360fps)
+-                    </p>
+-                    <p>
+-                        Achieved the record on the level that is listed on the site - please check the level ID before you submit a record
+-                    </p>
+-                    <p>
+-                        Have either source audio or clicks/taps in the video. Edited audio only does not count
+-                    </p>
+-                    <p>
+-                        The recording must have a previous attempt and entire death animation shown before the completion, unless the completion is on the first attempt. Everyplay records are exempt from this
+-                    </p>
+-                    <p>
+-                        The recording must also show the player hit the endwall, or the completion will be invalidated.
+-                    </p>
+-                    <p>
+-                        Do not use secret routes or bug routes
+-                    </p>
+-                    <p>
+-                        Do not use easy modes, only a record of the unmodified level qualifies
+-                    </p>
+-                    <p>
+-                        Once a level falls onto the Legacy List, we accept records for it for 24 hours after it falls off, then afterwards we never accept records for said level
+-                    </p>
++                    <section class="rules">
++                        <h3>📥 Правила постановки в лист</h3>
++                        <ol>
++                            <li>Уровень должен быть построен и верифицирован участниками RCCA (RC Challenge Accepted).</li>
++                            <li>Уровень должен быть сложнее wave-сегмента в Nine Circles.</li>
++                            <li>Уровень должен длиться не менее 5 и не более 30 секунд.</li>
++                            <li>Уровень должен иметь хотя бы минимальный декор, не созданный полностью с помощью шейдеров. Уровень не должен быть невидимым или содержать невидимые игровые части.</li>
++                            <li>Геймплей должен быть достаточно разнообразным, без чрезмерного количества одинаковых или повторяющихся моментов.</li>
++                            <li>В уровне не должно быть CBF-перфектов.</li>
++                        </ol>
++                        <p class="rule-note">
++                            <strong>Примечание:</strong> если уровень не соответствует одному из правил выше,
++                            не спешите писать администрации: он мог быть построен до введения правила либо
++                            получить исключение из-за идеи, атмосферы или других особенностей.
++                        </p>
++
++                        <h3>🔥 Правила принятия рекордов</h3>
++                        <ol>
++                            <li>Запись прохождения обязательна независимо от позиции и сложности челленджа.</li>
++                            <li>На записи должны присутствовать клики как звук, чит-индикатор, эндскрин и кпс каунтер. Также желательно оставлять 1–2 попытки перед победной.</li>
++                            <li>На мобильных устройствах запрещено использование мода XDBot.</li>
++                            <li>Если на записи была озвучена или показана личная информация, игрок вправе отредактировать видео и/или звуковую дорожку.</li>
++                            <li>При использовании предыдущего правила игрок обязан предоставить модератору исходную неотредактированную запись. Модератор не имеет права разглашать личную информацию игрока.</li>
++                        </ol>
++                        <h4>Для верификаций</h4>
++                        <p>
++                            Действуют те же правила. Дополнительно: уровень необходимо выложить на серверы
++                            Geometry Dash, не выключая запись, чтобы можно было удостовериться в ID уровня.
++                        </p>
++                    </section>
+                 </div>
+             </div>
+         </main>
+@@ -132,14 +183,55 @@
+         loading: true,
+         selected: 0,
+         errors: [],
++        query: "",
++        section: "all",
++        filters: [
++            { value: "all", label: "All" },
++            { value: "main", label: "Main" },
++            { value: "extended", label: "Extended" },
++            { value: "legacy", label: "Legacy" },
++        ],
+         roleIconMap,
++        roleLabelMap,
++        config,
+         store
+     }),
+     computed: {
+         level() {
+             return this.list[this.selected][0];
+         },
++        filteredList() {
++            const q = this.query.toLowerCase();
++            return this.list
++                .map(([level, err], index) => ({
++                    level,
++                    err,
++                    index,
++                    rank: index + 1,
++                }))
++                .filter((item) => {
++                    if (q && !item.level?.name?.toLowerCase().includes(q)) {
++                        return false;
++                    }
++                    if (this.section === "main") {
++                        return item.rank <= config.mainCutoff;
++                    }
++                    if (this.section === "extended") {
++                        return item.rank > config.mainCutoff && item.rank <= config.extendedCutoff;
++                    }
++                    if (this.section === "legacy") {
++                        return item.rank > config.extendedCutoff;
++                    }
++                    return true;
++                });
++        },
++        isTelegram() {
++            return isTelegramUrl(this.level.verification);
++        },
+         video() {
++            if (this.isTelegram) {
++                return telegramEmbed(this.level.verification);
++            }
+             if (!this.level.showcase) {
+                 return embed(this.level.verification);
+             }
+@@ -174,6 +265,8 @@
+     },
+     methods: {
+         embed,
++        isTelegramUrl,
++        telegramEmbed,
+         score,
+     },
+ };
+diff --git a/js/pages/Roulette.js b/js/pages/Roulette.js
+--- a/js/pages/Roulette.js
++++ b/js/pages/Roulette.js
+@@ -1,4 +1,5 @@
+ import { fetchList } from '../content.js';
++import { config } from '../config.js';
+ import { getThumbnailFromId, getYoutubeIdFromUrl, shuffle } from '../util.js';
+ import Spinner from '../components/Spinner.js';
+ import Btn from '../components/Btn.js';
+@@ -194,10 +195,10 @@
+         }));
+         const list = [];
+ 
+-        if (this.useMainList) list.push(...fullListMapped.slice(0, 75));
++        if (this.useMainList) list.push(...fullListMapped.slice(0, config.mainCutoff));
+ 
+         if (this.useExtendedList) {
+-            list.push(...fullListMapped.slice(75, 150));
++            list.push(...fullListMapped.slice(config.mainCutoff, config.extendedCutoff));
+         }
+ 
+         // random 100 levels
+diff --git a/js/pages/Leaderboard.js b/js/pages/Leaderboard.js
+--- a/js/pages/Leaderboard.js
++++ b/js/pages/Leaderboard.js
+@@ -8,5 +8,6 @@
+         loading: true,
+         selected: 0,
+         err: [],
++        query: '',
+     }),
+     template: `
+@@ -22,19 +23,24 @@
+         </div>
+ 
+         <div class="board-container">
++            <div class="leaderboard-tools">
++                <input v-model.trim="query" type="search" placeholder="Find player..." aria-label="Find player">
++            </div>
+ 
+             <table class="board">
+-                <tr v-for="(ientry, i) in leaderboard">
++                <tr v-for="ientry in filteredLeaderboard" :key="ientry.index">
++                    <template v-if="ientry.entry">
+                     <td class="rank">
+-                        <p class="type-label-lg">#{{ i + 1 }}</p>
++                        <p class="type-label-lg">#{{ ientry.index + 1 }}</p>
+                     </td>
+                     <td class="total">
+-                        <p class="type-label-lg">{{ localize(ientry.total) }}</p>
++                        <p class="type-label-lg">{{ localize(ientry.entry.total) }}</p>
+                     </td>
+-                    <td class="user" :class="{ 'active': selected == i }">
+-                        <button @click="selected = i">
+-                            <span class="type-label-lg">{{ ientry.user }}</span>
++                    <td class="user" :class="{ 'active': selected == ientry.index }">
++                        <button @click="selected = ientry.index">
++                            <span class="type-label-lg">{{ ientry.entry.user }}</span>
+                         </button>
+                     </td>
++                    </template>
+                 </tr>
+             </table>
+@@ -93,4 +100,12 @@
+         entry() {
+             return this.leaderboard[this.selected];
+         },
++        filteredLeaderboard() {
++            const q = this.query.toLowerCase();
++            return this.leaderboard
++                .map((entry, index) => ({ entry, index }))
++                .filter(({ entry }) =>
++                    !q || entry.user.toLowerCase().includes(q)
++                );
++        },
+     },
+diff --git a/data/_editors.json b/data/_editors.json
+--- a/data/_editors.json
++++ b/data/_editors.json
+@@ -1,27 +1,26 @@
+ [
+     {
+         "role": "owner",
+-        "name": "List Owner",
+-        "link": "https://www.youtube.com/@Prometheus_Alt"
++        "name": "TiraWu3"
+     },
+     {
+         "role": "admin",
+-        "name": "List Admin",
+-        "link": "https://www.youtube.com/@Prometheus_Alt"
++        "name": "TableofMoons"
+     },
+     {
+-        "role": "helper",
+-        "name": "List Helper",
+-        "link": "https://www.youtube.com/@Prometheus_Alt"
++        "role": "admin",
++        "name": "AquaGD"
+     },
+     {
+-        "role": "trial",
+-        "name": "Trial List Helper",
+-        "link": "https://www.youtube.com/@Prometheus_Alt"
++        "role": "moderator",
++        "name": "ToouGD"
++    },
++    {
++        "role": "moderator",
++        "name": "ItzTheRealMint"
+     },
+     {
+         "role": "dev",
+-        "name": "List Coder",
+-        "link": "https://www.youtube.com/@Prometheus_Alt"
++        "name": "StrafeGMD"
+     }
+ ]
+diff --git a/css/main.css b/css/main.css
+--- a/css/main.css
++++ b/css/main.css
+@@ -90,3 +90,66 @@
+     cursor: pointer;
+     margin: 0;
+ }
++
++/* RCCA visual refresh: restrained blue/white, no neon/glass effects. */
++:root {
++    --color-primary: #1677d2;
++    --color-primary-soft: rgba(22, 119, 210, 0.1);
++    --color-border: #d8e2ec;
++    --color-muted: #687887;
++    --color-surface: #f7f9fb;
++}
++
++main.dark,
++header.dark {
++    --color-background: #181b1f;
++    --color-background-hover: #232930;
++    --color-primary: #62b5ff;
++    --color-primary-disabled: #29445b;
++    --color-on-primary: #07131d;
++    --color-border: #35404a;
++    --color-muted: #9aa9b6;
++    --color-surface: #1e2328;
++}
++
++a {
++    color: inherit;
++}
++
++@media screen and (max-width: 900px) {
++    body {
++        min-width: 0;
++    }
++
++    header {
++        height: auto;
++        min-height: 4rem;
++        padding: 0.75rem 1rem;
++        gap: 0.75rem;
++        align-items: center;
++        flex-wrap: wrap;
++    }
++
++    header .logo {
++        align-items: baseline;
++        gap: 0.5rem;
++    }
++
++    header,
++    main {
++        grid-template-columns: 1fr;
++    }
++
++    main {
++        height: auto;
++        overflow: visible;
++    }
++
++    main > div {
++        overflow-y: visible;
++    }
++
++    .spinner {
++        grid-column: 1;
++    }
++}
+diff --git a/css/components/nav.css b/css/components/nav.css
+--- a/css/components/nav.css
++++ b/css/components/nav.css
+@@ -52,2 +52,33 @@
+     transform: translateY(-2px);
+ }
++
++.nav .nav__actions .nav__icon img {
++    color: var(--color-on-primary);
++}
++
++@media screen and (max-width: 900px) {
++    .nav {
++        width: 100%;
++        column-gap: 0.35rem;
++        row-gap: 0.35rem;
++        flex-wrap: wrap;
++    }
++
++    .nav .nav__tab {
++        padding: 0.55rem 0.65rem;
++    }
++
++    .nav .nav__actions {
++        margin-left: auto;
++    }
++
++    .nav .nav__actions .nav__icon {
++        width: 2.6rem;
++        height: 2.6rem;
++    }
++
++    .nav .nav__actions .nav__cta {
++        margin-left: 0.35rem;
++        padding: 0.75rem;
++    }
++}
+diff --git a/css/pages/list.css b/css/pages/list.css
+--- a/css/pages/list.css
++++ b/css/pages/list.css
+@@ -124,3 +124,161 @@
+ .page-list .meta .editors li a:hover {
+     text-decoration: underline;
+ }
++
++.page-list .list-container {
++    border-right: 1px solid var(--color-border);
++}
++
++.page-list .list-tools {
++    position: sticky;
++    top: 0;
++    z-index: 2;
++    padding: 0 0 1rem;
++    background: var(--color-background);
++}
++
++.page-list .list-search,
++.page-leaderboard input[type="search"] {
++    width: 100%;
++    box-sizing: border-box;
++    border: 1px solid var(--color-border);
++    border-radius: 0.5rem;
++    padding: 0.75rem 0.85rem;
++    background: var(--color-surface);
++    color: var(--color-on-background);
++    font: inherit;
++    outline: none;
++}
++
++.page-list .list-search:focus,
++.page-leaderboard input[type="search"]:focus {
++    border-color: var(--color-primary);
++    box-shadow: 0 0 0 3px var(--color-primary-soft);
++}
++
++.page-list .list-filters {
++    display: flex;
++    gap: 0.35rem;
++    margin-top: 0.6rem;
++    flex-wrap: wrap;
++}
++
++.page-list .list-filters button {
++    border: 1px solid var(--color-border);
++    border-radius: 0.45rem;
++    padding: 0.45rem 0.65rem;
++    background: var(--color-background);
++    color: var(--color-on-background);
++    cursor: pointer;
++    font: inherit;
++}
++
++.page-list .list-filters button:hover {
++    background: var(--color-background-hover);
++}
++
++.page-list .list-filters button.active {
++    border-color: var(--color-primary);
++    color: var(--color-primary);
++    background: var(--color-primary-soft);
++}
++
++.page-list .list .level button {
++    width: 100%;
++    border-left: 3px solid transparent;
++    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
++}
++
++.page-list .list .level.active button {
++    background: var(--color-primary-soft);
++    color: var(--color-on-background);
++    border-left-color: var(--color-primary);
++    box-shadow: 0 2px 10px rgba(32, 126, 201, 0.12);
++}
++
++.page-list .level-container .level {
++    padding-left: 0.25rem;
++}
++
++.page-list .level-container .level .video {
++    border: 1px solid var(--color-border);
++    border-radius: 0.5rem;
++    background: var(--color-surface);
++}
++
++.page-list .level-container .level .telegram-video {
++    min-height: 28rem;
++}
++
++.page-list .level-container .level .records tr {
++    border-bottom: 1px solid var(--color-border);
++}
++
++.page-list .level-container .level .records tr:hover {
++    background: var(--color-background-hover);
++}
++
++.page-list .meta .editors li {
++    padding: 0.35rem 0;
++}
++
++.page-list .meta .editor-name {
++    display: flex;
++    flex-direction: column;
++    gap: 0.1rem;
++}
++
++.page-list .meta .editor-name small {
++    color: var(--color-muted);
++}
++
++.page-list .rules {
++    display: flex;
++    flex-direction: column;
++    gap: 0.75rem;
++}
++
++.page-list .rules ol {
++    list-style: decimal;
++    padding-left: 1.4rem;
++    display: flex;
++    flex-direction: column;
++    gap: 0.65rem;
++    line-height: 1.45;
++}
++
++.page-list .rules .rule-note {
++    padding-left: 0.85rem;
++    border-left: 3px solid var(--color-primary);
++    color: var(--color-muted);
++    line-height: 1.45;
++}
++
++@media screen and (max-width: 900px) {
++    .page-list {
++        display: flex;
++        flex-direction: column;
++    }
++
++    .page-list .list-container,
++    .page-list .level-container,
++    .page-list .meta-container {
++        padding: 1rem;
++        border-right: 0;
++    }
++
++    .page-list .list-container {
++        max-height: 45vh;
++        overflow-y: auto;
++        border-bottom: 1px solid var(--color-border);
++    }
++
++    .page-list .level-container .level {
++        max-width: none;
++        padding-right: 0;
++    }
++
++    .page-list .meta-container {
++        padding-right: 1rem;
++    }
++}
+diff --git a/css/pages/leaderboard.css b/css/pages/leaderboard.css
+--- a/css/pages/leaderboard.css
++++ b/css/pages/leaderboard.css
+@@ -90,3 +90,61 @@
+ .page-leaderboard .player .table a:hover {
+     text-decoration: underline;
+ }
++
++.page-leaderboard .board-container {
++    border-right: 1px solid var(--color-border);
++}
++
++.page-leaderboard .leaderboard-tools {
++    position: sticky;
++    top: 0;
++    z-index: 2;
++    background: var(--color-background);
++    padding-bottom: 1rem;
++}
++
++.page-leaderboard .board tr:nth-child(-n + 3) .rank p {
++    font-weight: 700;
++    color: var(--color-primary);
++}
++
++.page-leaderboard .board .user button {
++    width: 100%;
++    border-left: 3px solid transparent;
++}
++
++.page-leaderboard .board .user.active button {
++    background: var(--color-primary-soft);
++    color: var(--color-on-background);
++    border-left-color: var(--color-primary);
++    box-shadow: 0 2px 10px rgba(32, 126, 201, 0.12);
++}
++
++.page-leaderboard .player .table tr {
++    border-bottom: 1px solid var(--color-border);
++}
++
++@media screen and (max-width: 900px) {
++    .page-leaderboard {
++        display: flex;
++        flex-direction: column;
++        max-width: none;
++    }
++
++    .page-leaderboard .error-container,
++    .page-leaderboard .board-container,
++    .page-leaderboard .player-container {
++        width: auto;
++    }
++
++    .page-leaderboard .board-container {
++        max-height: 45vh;
++        overflow-y: auto;
++        border-right: 0;
++        border-bottom: 1px solid var(--color-border);
++    }
++
++    .page-leaderboard .player {
++        padding: 0 1rem 1rem;
++    }
++}
